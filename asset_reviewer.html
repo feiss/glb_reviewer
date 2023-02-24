@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>glb quick reviewer</title>
+
+    <style>
+        body {
+            font: 16px sans-serif;
+            margin: 0;
+            background: #111;
+            color: #eee;
+            width: 100vw;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        #all {
+            display: flex;
+            height: 100vh;
+        }
+
+        #left {
+            flex: 0 0 auto;
+            padding: 20px;
+        }
+
+        #right {
+            flex: 1 0 auto;
+        }
+
+        a {
+            text-decoration: none;
+            color: #72f6f2;
+        }
+
+        a:hover {
+            color: #b5ceff;
+            user-select: none;
+        }
+
+        #filelist {
+            height: 90vh;
+            overflow-y: scroll;
+        }
+
+        #filelist a {
+            color: #729ef6;
+            display: block;
+            background-color: #222;
+            padding: 5px 10px;
+        }
+
+        #filelist a.active {
+            background-color: #1f497c;
+            color: #eee;
+        }
+
+        #filelist a:hover {
+            background-color: #333;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="all">
+        <div id="left">
+            <button onmousedown="toggle()" title="toggle visibility (v)">👁</button>
+            <button onmousedown="toggle_wireframe()" title="toggle wireframe (w)">🍜</button>
+            <br>
+            <br>
+            <div id="filelist">
+            </div>
+        </div>
+        <div id="right">
+
+        </div>
+    </div>
+</body>
+
+<script src="https://cdn.jsdelivr.net/npm/three/build/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three/examples/js/loaders/GLTFLoader.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three/examples/js/controls/OrbitControls.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/fflate@0.7.4/umd/index.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three/examples/js/loaders/EXRLoader.js"></script>
+<script type="module">
+
+    window.filelist = {};
+    window.current = 0;
+    window.view_wireframe = false;
+
+    const HDRI_url = 'https://raw.githubusercontent.com/blender/blender/main/release/datafiles/studiolights/world/forest.exr';
+
+    const $ = q => document.querySelector(q);
+    const $$ = q => document.querySelectorAll(q);
+
+    const scene = new THREE.Scene();
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    const camera = new THREE.PerspectiveCamera(75, 1.0, 0.1, 1000);
+    const controls = new THREE.OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+    controls.dampingFactor = 0.2;
+    controls.zoomSpeed = 2.0;
+    $('#right').appendChild(renderer.domElement);
+
+    const gridHelper = new THREE.GridHelper(10, 10);
+    gridHelper.position.y = -0.001;
+    scene.add(gridHelper);
+
+    const axesHelper = new THREE.AxesHelper(1.2);
+    scene.add(axesHelper);
+
+
+
+
+
+    const pmremGenerator = new THREE.PMREMGenerator(renderer);
+    pmremGenerator.compileEquirectangularShader();
+    new THREE.EXRLoader()
+        // .setDataType(THREE.UnsignedByteType)
+        .load(
+            HDRI_url,
+            function (texture) {
+                let exrCubeRenderTarget = pmremGenerator.fromEquirectangular(texture);
+                let exrBackground = exrCubeRenderTarget.texture;
+                window.envmap = exrCubeRenderTarget ? exrCubeRenderTarget.texture : null;
+                texture.dispose();
+            }
+        );
+
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.outputEncoding = THREE.sRGBEncoding;
+    scene.background = new THREE.Color(0x666666);
+
+    window.onWindowResize = function () {
+        const width = window.innerWidth - $('#left').clientWidth;
+        const height = window.innerHeight;
+        camera.aspect = width / height;
+        camera.updateProjectionMatrix();
+        renderer.setSize(width, height);
+    }
+    window.addEventListener('resize', onWindowResize, false);
+    onWindowResize();
+
+    const pointlight = new THREE.PointLight(0xffffff, 1, 300);
+    pointlight.position.set(50, 50, 50);
+    scene.add(pointlight);
+
+    camera.position.z = 2;
+    camera.position.y = 2;
+    camera.position.x = 1;
+    controls.update();
+
+    window.model = new THREE.Group();
+    scene.add(model);
+
+    function animate() {
+        requestAnimationFrame(animate);
+        controls.update();
+        renderer.render(scene, camera);
+    }
+    animate();
+
+    function setupAttributes(geometry) {
+        const vectors = [
+            new THREE.Vector3(1, 0, 0),
+            new THREE.Vector3(0, 1, 0),
+            new THREE.Vector3(0, 0, 1)
+        ];
+        const position = geometry.attributes.position;
+        const centers = new Float32Array(position.count * 3);
+        for (let i = 0, l = position.count; i < l; i++) {
+            vectors[i % 3].toArray(centers, i * 3);
+        }
+        geometry.setAttribute('center', new THREE.BufferAttribute(centers, 3));
+    }
+
+
+    window.addEventListener('load', function (event) {
+        var dropArea = document.body;
+
+        dropArea.addEventListener('dragover', function (event) {
+            event.stopPropagation();
+            event.preventDefault();
+            event.dataTransfer.dropEffect = 'copy';
+        }, false);
+
+        dropArea.addEventListener('drop', function (event) {
+            clear_files();
+            event.stopPropagation();
+            event.preventDefault();
+
+            // for each dropped file
+            let files = event.dataTransfer.files;
+            let loaded = 0;
+            for (var i = 0; i < files.length; i++) {
+                var file = files[i];
+                if (file.name.substring(file.name.length - 4).toLowerCase() === '.glb') {
+                    const reader = new FileReader();
+                    let filename = file.name;
+                    reader.onload = function (event) {
+                        var gltfloader = new THREE.GLTFLoader();
+                        var mesh = gltfloader.parse(event.target.result, "", gltf => {
+                            const id = filename + Object.keys(filelist).length;
+                            filelist[id] = gltf.scene;
+                            $('#filelist').innerHTML += '<a href="#" model_id="' + id + '" onclick="view_model(this, \'' + id + '\')">' + filename + '</a>';
+                            // add hdri
+                            gltf.scene.traverse(function (child) {
+                                if (child instanceof THREE.Mesh) {
+                                    setupAttributes(child.geometry);
+                                    child.material.envMap = envmap;
+                                    child.material.envMapIntensity = 1.2;
+                                    child.material.side = THREE.FrontSide;
+
+                                    child.original_material = child.material.clone();
+                                    child.wireframe_material = child.material.clone();
+                                    child.wireframe_material.wireframe = true;
+                                    child.wireframe_material.color = new THREE.Color(0x333333);
+                                    child.wireframe_material.emissive = new THREE.Color(0x888888);
+                                }
+                            });
+                            view_current();
+                        });
+                    }
+                    reader.readAsArrayBuffer(file);
+                }
+            }
+        }, false);
+    });
+
+
+    window.clear_files = function () {
+        filelist = {};
+        $('#filelist').innerHTML = '';
+        model.clear();
+        onWindowResize();
+
+    }
+
+    window.view_model = function (el, entry) {
+        if (el !== undefined) {
+
+            const as = $$('#filelist a');
+            for (let i = 0; i < as.length; i++) {
+                as[i].className = '';
+                if (as[i] == el) {
+                    current = i;
+                }
+            }
+            model.clear();
+            model.add(filelist[entry]);
+            el.className = 'active';
+        }
+
+        model.traverse(function (child) {
+            if (child instanceof THREE.Mesh) {
+                child.material = window.view_wireframe ? child.wireframe_material : child.original_material;
+            }
+        });
+        model.visible = true;
+    }
+
+    function prev() {
+        if (current > 0) {
+            current--;
+            view_current()
+        }
+    }
+    function next() {
+        if (current < $$('#filelist a').length - 1) {
+            current++;
+            view_current()
+        }
+    }
+    function view_current() {
+        const as = $$('#filelist a');
+        const el = as[current];
+        const entry = el.getAttribute("model_id");
+        view_model(el, entry);
+    }
+
+    window.toggle = function () {
+        model.visible = !model.visible;
+    }
+
+    window.toggle_wireframe = function () {
+        window.view_wireframe = !window.view_wireframe;
+        view_model();
+    }
+
+    window.onkeydown = function (ev) {
+        switch (ev.keyCode) {
+            case 38: {
+                ev.preventDefault()
+                prev();
+                break;
+            }
+            case 40: {
+                ev.preventDefault()
+                next();
+                break;
+            }
+            case 87: {
+                ev.preventDefault()
+                toggle_wireframe();
+                break;
+            }
+            case 86: {
+                ev.preventDefault()
+                model.visible = !model.visible;
+                break;
+            }
+            default:
+                console.log(ev.keyCode);
+                break;
+        }
+    };
+</script>
+
+</html>
