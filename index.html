@@ -5,7 +5,7 @@
     <meta charset="UTF-8">
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>glb quick reviewer</title>
+    <title>GLB review</title>
 
     <style>
         body {
@@ -62,6 +62,20 @@
         #filelist a:hover {
             background-color: #333;
         }
+
+        #morphs {
+            position: absolute;
+            right: 0;
+            margin: 1rem 1.6rem;
+        }
+
+        #morphs label {
+            display: block;
+        }
+
+        #morphs label input {
+            display: block;
+        }
     </style>
 </head>
 
@@ -75,6 +89,7 @@
             <div id="filelist">
             </div>
         </div>
+        <div id="morphs"></div>
         <div id="right">
 
         </div>
@@ -258,9 +273,44 @@
         model.traverse(function (child) {
             if (child instanceof THREE.Mesh) {
                 child.material = window.view_wireframe ? child.wireframe_material : child.original_material;
+                add_morph_targets(child);
             }
         });
+
+        add_morph_targets_gui();
         model.visible = true;
+
+        document.title = "GLB review - " + el.textContent;
+
+    }
+
+
+    window.morphs = {};
+
+    function add_morph_targets(mesh) {
+        window.morphs = {};
+        let i = 0;
+        for (let morph in mesh.morphTargetDictionary) {
+            window.morphs[morph] = mesh.morphTargetInfluences[i++];
+        }
+    }
+    function add_morph_targets_gui() {
+        $('#morphs').innerHTML = "";
+        let i = 0;
+        for (let m in morphs) {
+            const row = `<label>${m} <input type='range' min='0' max='1' step='0.001' value='0' oninput='morph_weight(${i}, this.value)'></label>`;
+            $('#morphs').innerHTML += row;
+            i++;
+        }
+    }
+
+    window.morph_weight = function (morph, weight) {
+
+        model.traverse(function (child) {
+            if (child instanceof THREE.Mesh) {
+                child.morphTargetInfluences[morph] = weight;
+            }
+        });
     }
 
     function prev() {
