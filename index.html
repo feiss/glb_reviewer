@@ -76,6 +76,16 @@
         #morphs label input {
             display: block;
         }
+
+        #collisionmesh {
+            opacity: 0;
+            position: absolute;
+            left: 50%;
+            top: 28px;
+            padding: 5px 10px;
+            background: rgba(190, 70, 0, 0.5);
+            border-radius: 13px;
+        }
     </style>
 </head>
 
@@ -84,6 +94,7 @@
         <div id="left">
             <button onmousedown="toggle()" title="toggle visibility (v)">👁</button>
             <button onmousedown="toggle_wireframe()" title="toggle wireframe (w)">🍜</button>
+            <button onmousedown="toggle_collision_mesh()" title="toggle collision mesh (c)">📦</button>
             <br>
             <br>
             <div id="filelist">
@@ -91,7 +102,7 @@
         </div>
         <div id="morphs"></div>
         <div id="right">
-
+            <div id="collisionmesh">COLLISION MESH</div>
         </div>
     </div>
 </body>
@@ -106,6 +117,7 @@
     window.filelist = {};
     window.current = 0;
     window.view_wireframe = false;
+    window.view_collision_mesh = false;
 
     const HDRI_url = 'https://raw.githubusercontent.com/blender/blender/main/release/datafiles/studiolights/world/forest.exr';
 
@@ -127,9 +139,6 @@
 
     const axesHelper = new THREE.AxesHelper(1.2);
     scene.add(axesHelper);
-
-
-
 
 
     const pmremGenerator = new THREE.PMREMGenerator(renderer);
@@ -230,6 +239,10 @@
                                     child.material.envMapIntensity = 1.2;
                                     child.material.side = THREE.FrontSide;
 
+                                    if (is_collider(child)) {
+                                        child.material.flatShading = true;
+                                    }
+
                                     child.original_material = child.material.clone();
                                     child.wireframe_material = child.material.clone();
                                     child.wireframe_material.wireframe = true;
@@ -270,18 +283,29 @@
             el.className = 'active';
         }
 
+        console.log('///////////////////');
         model.traverse(function (child) {
             if (child instanceof THREE.Mesh) {
-                child.material = window.view_wireframe ? child.wireframe_material : child.original_material;
-                add_morph_targets(child);
+                if (is_collider(child) == window.view_collision_mesh) {
+                    child.material = window.view_wireframe ? child.wireframe_material : child.original_material;
+                    add_morph_targets(child);
+                    child.visible = true;
+                } else {
+                    child.visible = false;
+                }
             }
         });
 
         add_morph_targets_gui();
         model.visible = true;
 
-        document.title = "GLB review - " + el.textContent;
+        // document.title = "GLB review - " + el.textContent;
 
+    }
+
+
+    function is_collider(obj) {
+        return obj.name.startsWith("_collision") || (obj.userData.hasOwnProperty('wim_physics_shape_type') && obj.userData.wim_physics_shape_type !== 0);
     }
 
 
@@ -341,6 +365,12 @@
         view_model();
     }
 
+    window.toggle_collision_mesh = function () {
+        window.view_collision_mesh = !window.view_collision_mesh;
+        $('#collisionmesh').style.opacity = window.view_collision_mesh ? 1 : 0;
+        view_model();
+    }
+
     window.onkeydown = function (ev) {
         switch (ev.keyCode) {
             case 38: {
@@ -361,6 +391,11 @@
             case 86: {
                 ev.preventDefault()
                 model.visible = !model.visible;
+                break;
+            }
+            case 67: {
+                ev.preventDefault();
+                toggle_collision_mesh();
                 break;
             }
             default:
